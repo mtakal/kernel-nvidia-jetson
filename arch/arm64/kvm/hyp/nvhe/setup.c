@@ -86,7 +86,13 @@ static int create_hyp_host_fp_mappings(void)
 
 	return 0;
 }
+/*int xx = 1;
 
+int xdummy(int r) {
+	while(xx);
+	return r;
+}
+*/
 static int recreate_hyp_mappings(phys_addr_t phys, unsigned long size,
 				 unsigned long *per_cpu_base,
 				 u32 hyp_va_bits)
@@ -95,7 +101,7 @@ static int recreate_hyp_mappings(phys_addr_t phys, unsigned long size,
 	unsigned long pgt_size = hyp_s1_pgtable_pages() << PAGE_SHIFT;
 	enum kvm_pgtable_prot prot;
 	int ret, i;
-
+	//while(xx);
 	/* Recreate the hyp page-table using the early page allocator */
 	hyp_early_alloc_init(hyp_pgt_base, pgt_size);
 	ret = kvm_pgtable_hyp_init(&pkvm_pgtable, hyp_va_bits,
@@ -164,6 +170,9 @@ static int recreate_hyp_mappings(phys_addr_t phys, unsigned long size,
 	end = start + pvmfw_size;
 	prot = pkvm_mkstate(PAGE_HYP_RO, PKVM_PAGE_OWNED);
 	ret = pkvm_create_mappings(start, end, prot);
+
+	//while(xx);
+	//ret = xdummy(ret);
 	if (ret)
 		return ret;
 

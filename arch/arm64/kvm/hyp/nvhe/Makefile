@@ -32,3 +32,11 @@ $(obj)/hyp.lds: $(src)/hyp.lds.S FORCE
 
 include $(srctree)/arch/arm64/kvm/hyp/nvhe/Makefile.nvhe
 obj-y := kvm_nvhe.o
+KCSAN_SANITIZE := n
+
+extra-y += debug/dummy.o debug/el2.bin
+LDFLAGS_el2.bin :=  -Map=el2.map -T
+$(obj)/debug/el2.bin: $(obj)/debug/hyp-dbg.lds $(addprefix $(obj)/,$(hyp-obj) ) $(obj)/debug/dummy.o FORCE
+#$(obj)/debug/el2.bin: $(obj)/hyp.lds $(addprefix $(obj)/,$(hyp-obj) ) $(obj)/debug/dummy.o FORCE
+	$(call if_changed,ld)
+

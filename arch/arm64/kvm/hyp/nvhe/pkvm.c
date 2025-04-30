@@ -20,6 +20,7 @@
 #include <nvhe/pkvm.h>
 #include <nvhe/rwlock.h>
 #include <nvhe/trap_handler.h>
+#include <nvhe/hyp_print.h>
 
 /* Used by icache_is_vpipt(). */
 unsigned long __icache_flags;
@@ -1131,8 +1132,9 @@ void pkvm_reset_vcpu(struct pkvm_hyp_vcpu *hyp_vcpu)
 		hyp_vm->pvmfw_entry_vcpu = NULL;
 
 		/* Auto enroll MMIO guard */
-		set_bit(KVM_ARCH_FLAG_MMIO_GUARD, &hyp_vm->kvm.arch.flags);
+		//set_bit(KVM_ARCH_FLAG_MMIO_GUARD, &hyp_vm->kvm.arch.flags);
 	}
+	//set_bit(KVM_ARCH_FLAG_MMIO_GUARD, &hyp_vm->kvm.arch.flags);
 
 	if (pkvm_hyp_vcpu_is_protected(hyp_vcpu) && vcpu_has_sve(vcpu))
 		memset(vcpu->arch.sve_state, 0, vcpu_sve_state_size(vcpu));
@@ -1447,6 +1449,7 @@ static int pkvm_handle_empty_memcache(struct pkvm_hyp_vcpu *hyp_vcpu,
 	return 0;
 }
 
+int dbg = 0;
 static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 {
 	struct pkvm_hyp_vm *hyp_vm = pkvm_hyp_vcpu_to_hyp_vm(hyp_vcpu);
@@ -1461,10 +1464,10 @@ static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	/* Legacy guests have arg2 set to 0 */
 	if (nr_pages == 0)
 		nr_pages = 1;
-
+	//if (dbg)
+	//	hyp_print("pkvm_memshare_call %llx %llx\n",arg3,ipa);
 	if (arg3 || !PAGE_ALIGNED(ipa))
 		goto out_guest_err;
-
 	err = __pkvm_guest_share_host(hyp_vcpu, ipa, nr_pages, &nr_shared);
 	switch (err) {
 	case 0:
@@ -1492,7 +1495,6 @@ static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 
 		goto out_host;
 	}
-
 out_guest_err:
 	smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
 	return true;
@@ -1501,6 +1503,121 @@ out_host:
 	return false;
 }
 
+int pkvm_guest_share_guest(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
+			    u64 *nr_shared);
+int pkvm_guest_share_guest2(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
+			    u64 *nr_shared);
+static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
+{
+	struct pkvm_hyp_vm *hyp_vm = pkvm_hyp_vcpu_to_hyp_vm(hyp_vcpu);
+	struct kvm_vcpu *vcpu = &hyp_vcpu->vcpu;
+	u64 ipa = smccc_get_arg1(vcpu);
+	u64 nr_pages = smccc_get_arg2(vcpu);
+	u64 arg3 = smccc_get_arg3(vcpu);
+	struct kvm_hyp_req *req;
+	u64 nr_shared;
+	int err;
+	hyp_print("pkvm_test_call\n");
+	dbg = 1;
+
+	/* Legacy guests have arg2 set to 0 */
+	if (nr_pages == 0)
+		nr_pages = 1;
+	//hyp_print("pkvm_memshare_call %llx %llx\n",arg3,ipa);
+	if (arg3 || !PAGE_ALIGNED(ipa))
+		goto out_guest_err;
+	dbg = 1;
+	err = pkvm_guest_share_guest(hyp_vcpu, ipa, nr_pages, &nr_shared);
+	switch (err) {
+	case 0:
+		atomic64_add(nr_shared * PAGE_SIZE,
+			     &hyp_vm->host_kvm->stat.protected_shared_mem);
+		smccc_set_retval(vcpu, SMCCC_RET_SUCCESS, nr_shared, 0, 0);
+
+		return true;
+	case -EFAULT:
+		req = pkvm_hyp_req_reserve(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP);
+		if (!req)
+			goto out_guest_err;
+
+		req->map.guest_ipa = ipa;
+		req->map.size = nr_pages << PAGE_SHIFT;
+
+		/*
+		 * We're about to go back to the host... let's not waste time
+		 * and check for the memcache while at it.
+		 */
+		fallthrough;
+	case -ENOMEM:
+		if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code))
+			goto out_guest_err;
+
+		goto out_host;
+	}
+out_guest_err:
+	dbg = 0;
+	smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
+	return true;
+
+out_host:
+	return false;
+}
+static bool pkvm_test2_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
+{
+	struct pkvm_hyp_vm *hyp_vm = pkvm_hyp_vcpu_to_hyp_vm(hyp_vcpu);
+	struct kvm_vcpu *vcpu = &hyp_vcpu->vcpu;
+	u64 ipa = smccc_get_arg1(vcpu);
+	u64 nr_pages = smccc_get_arg2(vcpu);
+	u64 arg3 = smccc_get_arg3(vcpu);
+	struct kvm_hyp_req *req;
+	u64 nr_shared;
+	int err;
+	hyp_print("pkvm_test2_call\n");
+	dbg = 1;
+
+	/* Legacy guests have arg2 set to 0 */
+	if (nr_pages == 0)
+		nr_pages = 1;
+	//hyp_print("pkvm_memshare_call %llx %llx\n",arg3,ipa);
+	if (arg3 || !PAGE_ALIGNED(ipa))
+		goto out_guest_err;
+	dbg = 1;
+	err = pkvm_guest_share_guest2(hyp_vcpu, ipa, nr_pages, &nr_shared);
+	switch (err) {
+	case 0:
+		atomic64_add(nr_shared * PAGE_SIZE,
+			     &hyp_vm->host_kvm->stat.protected_shared_mem);
+		smccc_set_retval(vcpu, SMCCC_RET_SUCCESS, nr_shared, 0, 0);
+
+		return true;
+	case -EFAULT:
+		hyp_print("EFAULT\n");
+		req = pkvm_hyp_req_reserve(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP);
+		if (!req)
+			goto out_guest_err;
+
+		req->map.guest_ipa = ipa;
+		req->map.size = nr_pages << PAGE_SHIFT;
+
+		/*
+		 * We're about to go back to the host... let's not waste time
+		 * and check for the memcache while at it.
+		 */
+		fallthrough;
+	case -ENOMEM:
+		if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code))
+			goto out_guest_err;
+
+		goto out_host;
+	}
+out_guest_err:
+	dbg = 0;
+	smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
+	return true;
+
+out_host:
+	return false;
+}
 static bool pkvm_memunshare_call(struct pkvm_hyp_vcpu *hyp_vcpu)
 {
 	struct pkvm_hyp_vm *hyp_vm = pkvm_hyp_vcpu_to_hyp_vm(hyp_vcpu);
@@ -1683,6 +1800,7 @@ bool kvm_handle_pvm_hvc64(struct kvm_vcpu *vcpu, u64 *exit_code)
 	struct pkvm_hyp_vcpu *hyp_vcpu;
 
 	hyp_vcpu = container_of(vcpu, struct pkvm_hyp_vcpu, vcpu);
+	//hyp_print("exit hypcall %x\n",fn);
 
 	switch (fn) {
 	case ARM_SMCCC_VERSION_FUNC_ID:
@@ -1723,6 +1841,10 @@ bool kvm_handle_pvm_hvc64(struct kvm_vcpu *vcpu, u64 *exit_code)
 		return pkvm_meminfo_call(hyp_vcpu);
 	case ARM_SMCCC_VENDOR_HYP_KVM_MEM_SHARE_FUNC_ID:
 		return pkvm_memshare_call(hyp_vcpu, exit_code);
+	case ARM_SMCCC_VENDOR_HYP_KVM_TEST_FUNC_ID:
+		return pkvm_test_call(hyp_vcpu, exit_code);
+	case ARM_SMCCC_VENDOR_HYP_KVM_TEST2_FUNC_ID:
+		return pkvm_test2_call(hyp_vcpu, exit_code);
 	case ARM_SMCCC_VENDOR_HYP_KVM_MEM_UNSHARE_FUNC_ID:
 		return pkvm_memunshare_call(hyp_vcpu);
 	case ARM_SMCCC_VENDOR_HYP_KVM_MEM_RELINQUISH_FUNC_ID:

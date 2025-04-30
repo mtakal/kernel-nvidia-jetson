@@ -24,6 +24,7 @@
 #include <nvhe/modules.h>
 #include <nvhe/mm.h>
 #include <nvhe/pkvm.h>
+#include <nvhe/hyp_print.h>
 #include <nvhe/trace/trace.h>
 #include <nvhe/trap_handler.h>
 
@@ -205,6 +206,7 @@ static void handle_pvm_entry_hvc64(struct pkvm_hyp_vcpu *hyp_vcpu)
 {
 	u32 fn = smccc_get_function(&hyp_vcpu->vcpu);
 
+	//hyp_print("entry hypcall %x\n",fn);
 	switch (fn) {
 	case ARM_SMCCC_VENDOR_HYP_KVM_MEM_SHARE_FUNC_ID:
 		fallthrough;
