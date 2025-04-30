@@ -1459,9 +1459,11 @@ static int guest_complete_share(const struct pkvm_checked_mem_transition *checke
 	u64 addr = checked_tx->completer_addr;
 	enum kvm_pgtable_prot prot;
 	if (dbg)
-		hyp_print("size %x ipa %llx phys %llx\n",size, addr,tx->completer.guest.phys);
+		hyp_print("size %x ipa %llx phys %llx %x\n",size, addr,tx->completer.guest.phys, perms);
 
 	prot = pkvm_mkstate(perms, PKVM_PAGE_SHARED_BORROWED);
+	if (dbg)
+		hyp_print("prot %x\n", prot);
 	return kvm_pgtable_stage2_map(&vm->pgt, addr, size, tx->completer.guest.phys,
 				      prot, mc, 0);
 }
@@ -2169,7 +2171,7 @@ int pkvm_guest_share_guest2(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
 	checked_tx.completer_addr = ipa;
 	ret = guest_complete_unshare(&checked_tx);
 	hyp_print("__pkvm_guest_share_guest2 unmap %x\n", ret);
-	ret = guest_complete_share(&checked_tx, 0);
+	ret = guest_complete_share(&checked_tx, PKVM_HOST_MEM_PROT);
 	dbg = 0;
 //	ret = guest_request_share(&checked_tx);
 	//ret = guest_request_share(checked_tx);
