@@ -1707,7 +1707,7 @@ static void handle_host_hcall(struct kvm_cpu_context *host_ctxt)
 
 	if (unlikely(id < hcall_min || id >= ARRAY_SIZE(host_hcall)))
 		goto inval;
-
+	//hyp_print("hcall %lx\n",id)
 	hfn = host_hcall[id];
 	if (unlikely(!hfn))
 		goto inval;
@@ -1719,6 +1719,7 @@ end:
 
 	return;
 inval:
+	hyp_print("hcall err\n");
 	trace_host_hcall(id, 1);
 	cpu_reg(host_ctxt, 0) = SMCCC_RET_NOT_SUPPORTED;
 }

@@ -666,9 +666,9 @@ static int init_pkvm_hyp_vcpu_sve(struct pkvm_hyp_vcpu *hyp_vcpu, struct kvm_vcp
 		ret = -EINVAL;
 		goto err;
 	}
-
 	if (pkvm_hyp_vcpu_is_protected(hyp_vcpu)) {
 		struct pkvm_hyp_vm *hyp_vm = pkvm_hyp_vcpu_to_hyp_vm(hyp_vcpu);
+		hyp_print("init_pkvm_hyp_vcpu_sve %llx\n",sve_state_size);
 
 		sve_state = hyp_alloc_account(sve_state_size,
 					      hyp_vm->host_kvm);
@@ -834,6 +834,7 @@ static size_t pkvm_get_hyp_vm_size(unsigned int nr_vcpus)
  * Return a unique handle to the protected VM on success,
  * negative error code on failure.
  */
+//int xx = 1;
 int __pkvm_init_vm(struct kvm *host_kvm, unsigned long pgd_hva)
 {
 	struct pkvm_hyp_vm *hyp_vm = NULL;
@@ -852,13 +853,16 @@ int __pkvm_init_vm(struct kvm *host_kvm, unsigned long pgd_hva)
 		ret = -EINVAL;
 		goto err_unpin_kvm;
 	}
+	hyp_print("init1 \n");
 
 	hyp_vm = hyp_alloc_account(pkvm_get_hyp_vm_size(nr_vcpus),
 				   host_kvm);
 	if (!hyp_vm) {
+		//while(xx);
 		ret = hyp_alloc_errno();
 		goto err_unpin_kvm;
 	}
+	hyp_print("init2 \n");
 
 	last_ran = hyp_alloc_account(pkvm_get_last_ran_size(), host_kvm);
 	if (!last_ran) {
@@ -923,8 +927,11 @@ int __pkvm_init_vcpu(pkvm_handle_t handle, struct kvm_vcpu *host_vcpu)
 		ret = -ENOENT;
 		goto unlock_vm;
 	}
+	hyp_print("pvminit1 \n");
 
 	hyp_vcpu = hyp_alloc_account(sizeof(*hyp_vcpu), hyp_vm->host_kvm);
+	hyp_print("pvminit ret %llx\n",hyp_vcpu);
+
 	if (!hyp_vcpu) {
 		ret = hyp_alloc_errno();
 		goto unlock_vm;
@@ -950,7 +957,9 @@ unlock_vcpus:
 	if (ret)
 		hyp_free_account(hyp_vcpu, hyp_vm->host_kvm);
 unlock_vm:
+	hyp_print("unlock \n");
 	hyp_read_unlock(&vm_table_lock);
+	hyp_print("unlock ret %x\n",ret);
 
 	return ret;
 }
@@ -1502,65 +1511,144 @@ out_guest_err:
 out_host:
 	return false;
 }
+/*----------------------------------------------*/
+/*struct guest_shared_addr {
+	pkvm_handle_t handle;
+	unsigned long ipa;
+	phys_addr_t phys;
+};
+*/
+struct guest2guest_share {
+	pkvm_handle_t initiator_handle;
+	pkvm_handle_t completer_handle;
+	unsigned long initiator_ipa;
+	unsigned long completer_ipa;
+	u32	id;
+	phys_addr_t phys;
+};
+
+#define MAX_GUEST_SHARE_COUNT 256
+struct guest_share_data {
+	struct guest2guest_share share[MAX_GUEST_SHARE_COUNT];
+	struct guest_share *next;
+} *guest_share = 0;
+
+//ruct guest_shared_mem gshare[MAX_GUEST_SHARE_COUNT];
 
 int pkvm_guest_share_guest(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
-			    u64 *nr_shared);
+			    u64 *nr_shared, u64 *phys);
 int pkvm_guest_share_guest2(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
-			    u64 *nr_shared);
+			    u64 *nr_shared, u64 phys);
 static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 {
 	struct pkvm_hyp_vm *hyp_vm = pkvm_hyp_vcpu_to_hyp_vm(hyp_vcpu);
 	struct kvm_vcpu *vcpu = &hyp_vcpu->vcpu;
 	u64 ipa = smccc_get_arg1(vcpu);
-	u64 nr_pages = smccc_get_arg2(vcpu);
-	u64 arg3 = smccc_get_arg3(vcpu);
+	u32 id = smccc_get_arg2(vcpu);
+	u64 target_handle = smccc_get_arg3(vcpu);
+	pkvm_handle_t handle = hyp_vm->kvm.arch.pkvm.handle;
 	struct kvm_hyp_req *req;
 	u64 nr_shared;
-	int err;
-	hyp_print("pkvm_test_call\n");
+	int err = 0;
+	int i;
+	hyp_print("pkvm_test_call %llx %x %x %x\n",ipa,target_handle,handle,id);
 	dbg = 1;
+	bool init = false;
+	
+	//hyp_print("hyp_mem1 %llx\n",
+	//		hyp_vm->host_kvm->stat.protected_hyp_mem);
 
-	/* Legacy guests have arg2 set to 0 */
-	if (nr_pages == 0)
-		nr_pages = 1;
-	//hyp_print("pkvm_memshare_call %llx %llx\n",arg3,ipa);
-	if (arg3 || !PAGE_ALIGNED(ipa))
-		goto out_guest_err;
 	dbg = 1;
-	err = pkvm_guest_share_guest(hyp_vcpu, ipa, nr_pages, &nr_shared);
-	switch (err) {
-	case 0:
-		atomic64_add(nr_shared * PAGE_SIZE,
-			     &hyp_vm->host_kvm->stat.protected_shared_mem);
-		smccc_set_retval(vcpu, SMCCC_RET_SUCCESS, nr_shared, 0, 0);
+	if (!guest_share) {
+		guest_share = hyp_alloc_account(sizeof(struct guest_share_data),
+						hyp_vm->host_kvm);
+		hyp_print("hyp_mem2 %llx %llx\n",
+				hyp_vm->host_kvm->stat.protected_hyp_mem, guest_share);
+		if (!guest_share) {
+			hyp_print("fail1\n");
+			err = hyp_alloc_errno();
+		} else {
+			memset(guest_share, 0, sizeof(struct guest_share_data));
+			hyp_print("OK1\n");
+		}
 
-		return true;
-	case -EFAULT:
-		req = pkvm_hyp_req_reserve(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP);
-		if (!req)
-			goto out_guest_err;
 
-		req->map.guest_ipa = ipa;
-		req->map.size = nr_pages << PAGE_SHIFT;
+		/* Legacy guests have arg2 set to 0 */
+		//hyp_print("pkvm_memshare_call %llx %llx\n",arg3,ipa);
+		hyp_print("pkvm_test_call err %x\n",err);
 
+		switch (err) {
+		case 0:
+			break;
 		/*
-		 * We're about to go back to the host... let's not waste time
-		 * and check for the memcache while at it.
-		 */
-		fallthrough;
-	case -ENOMEM:
-		if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code))
-			goto out_guest_err;
+			atomic64_add(nr_shared * PAGE_SIZE,
+			     &hyp_vm->host_kvm->stat.protected_shared_mem);
+			smccc_set_retval(vcpu, SMCCC_RET_SUCCESS, nr_shared, 0, 0);
 
-		goto out_host;
+			return true;
+		*/
+		case -EFAULT:
+			 req = pkvm_hyp_req_reserve(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP);
+			 if (!req) {
+					hyp_print("out_guest_err\n");
+					smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
+					return false;
+			 }
+		
+			 req->map.guest_ipa = ipa;
+			 req->map.size = 1 << PAGE_SHIFT;
+		
+			 /*
+			  * We're about to go back to the host... let's not waste time
+			  * and check for the memcache while at it.
+			  */
+			 fallthrough;
+		 case -ENOMEM:
+			 if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code)) {
+				dbg = 0;
+				hyp_print("out_guest_err\n");
+				smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
+			 }
+			 return false;
+		}
 	}
-out_guest_err:
+	hyp_print("look for %x 0 %x\n",handle, id);
+	for (i = 0; i < MAX_GUEST_SHARE_COUNT; i++) {
+		hyp_print("%d: %x %lx %x\n",i,
+				guest_share->share[i].completer_handle,
+				guest_share->share[i].completer_ipa,
+				guest_share->share[i].id == id);
+
+		if ((guest_share->share[i].completer_handle == handle) &&
+		    (guest_share->share[i].completer_ipa == 0) &&
+			guest_share->share[i].id == id) {
+			guest_share->share[i].completer_ipa = ipa;
+			hyp_print("vmid found\%x/%x from %d\n",target_handle,id, i);
+			init = true;
+			break;
+		}
+	}
+
+	if (!init) {
+		for (i = 0; i < MAX_GUEST_SHARE_COUNT; i++)
+			if (guest_share->share[i].completer_handle == 0)
+				break;
+
+		guest_share->share[i].completer_handle = target_handle;
+		//guest_share->share[i].completer_ipa = ipa;
+		guest_share->share[i].id = id;
+
+		err = pkvm_guest_share_guest(hyp_vcpu, ipa, 1, &nr_shared, &guest_share->share[i].phys);
+		hyp_print("set vmid %x/%x to %d %llx -> %llx\n",target_handle, id, i, ipa, guest_share->share[i].phys);
+	} else {
+		err = pkvm_guest_share_guest2(hyp_vcpu, ipa, 1, &nr_shared, guest_share->share[i].phys);
+	}
+	hyp_print("pkvm_test_call ret %x\n",err);
+	smccc_set_retval(vcpu, SMCCC_RET_SUCCESS, nr_shared, 0, 0);
 	dbg = 0;
-	smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
+
 	return true;
 
-out_host:
-	return false;
 }
 static bool pkvm_test2_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 {
@@ -1574,7 +1662,7 @@ static bool pkvm_test2_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	int err;
 	hyp_print("pkvm_test2_call\n");
 	dbg = 1;
-
+#if 0
 	/* Legacy guests have arg2 set to 0 */
 	if (nr_pages == 0)
 		nr_pages = 1;
@@ -1616,6 +1704,7 @@ out_guest_err:
 	return true;
 
 out_host:
+#endif
 	return false;
 }
 static bool pkvm_memunshare_call(struct pkvm_hyp_vcpu *hyp_vcpu)

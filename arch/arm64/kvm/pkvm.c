@@ -349,6 +349,9 @@ static int __pkvm_create_hyp_vcpu(struct kvm *host_kvm, struct kvm_vcpu *host_vc
 
 	ret = kvm_call_refill_hyp_nvhe(__pkvm_init_vcpu,
 				       handle, host_vcpu);
+	printk("__pkvm_create_hyp_vcpu %x\n",ret);
+	pr_err("__pkvm_create_hyp_vcpu %x\n",ret);
+
 	if (!ret)
 		return 0;
 
@@ -1029,7 +1032,7 @@ int __pkvm_topup_hyp_alloc_mgt_gfp(unsigned long id, unsigned long nr_pages,
 	int ret;
 
 	init_hyp_memcache(&mc);
-
+	//kvm_err("__pkvm_topup_hyp_alloc_mgt_gfp\n");
 	ret = topup_hyp_memcache_gfp(&mc, nr_pages, get_order(sz_alloc), gfp);
 	if (ret)
 		return ret;
@@ -1045,12 +1048,14 @@ EXPORT_SYMBOL(__pkvm_topup_hyp_alloc_mgt_gfp);
 
 int __pkvm_topup_hyp_alloc_mgt(unsigned long id, unsigned long nr_pages, unsigned long sz_alloc)
 {
+	//kvm_err("__pkvm_topup_hyp_alloc_mgt\n");
 	return __pkvm_topup_hyp_alloc_mgt_gfp(id, nr_pages, sz_alloc, GFP_KERNEL);
 }
 EXPORT_SYMBOL(__pkvm_topup_hyp_alloc_mgt);
 
 int __pkvm_topup_hyp_alloc(unsigned long nr_pages)
 {
+	//kvm_err("__pkvm_topup_hyp_alloc\n");
 	return __pkvm_topup_hyp_alloc_mgt(HYP_ALLOC_MGT_HEAP_ID, nr_pages, PAGE_SIZE);
 }
 EXPORT_SYMBOL(__pkvm_topup_hyp_alloc);
