@@ -12,7 +12,15 @@
 
 #include <nvhe/gfp.h>
 #include <nvhe/spinlock.h>
-
+struct guest2guest_share {
+	//pkvm_handle_t initiator_handle;
+	pkvm_handle_t completer_handle;
+	unsigned long initiator_ipa;
+	unsigned long completer_ipa;
+	u32	id;
+	phys_addr_t phys;
+	struct guest2guest_share *next;
+};
 /*
  * Holds the relevant data for maintaining the vcpu state completely at hyp.
  */
@@ -66,7 +74,7 @@ struct pkvm_hyp_vm {
 	 */
 	unsigned int nr_vcpus;
 	hyp_spinlock_t vcpus_lock;
-
+	struct guest2guest_share *guest2guest_share;
 	/*
 	 * True when the guest is being torn down. When in this state, the
 	 * guest's vCPUs can't be loaded anymore, but its pages can be
