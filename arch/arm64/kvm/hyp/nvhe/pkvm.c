@@ -1549,18 +1549,18 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	u64 ipa = smccc_get_arg1(vcpu);
 	u32 id = smccc_get_arg2(vcpu);
 	u64 target_handle = smccc_get_arg3(vcpu);
-	pkvm_handle_t handle = hyp_vm->kvm.arch.pkvm.handle;
+	pkvm_handle_t initiator_handle = hyp_vm->kvm.arch.pkvm.handle;
 	struct pkvm_hyp_vm ;
 	struct kvm_hyp_req *req;
 	u64 nr_shared;
 	int err = 0;
 	int i;
-	hyp_print("pkvm_test_call %llx %x %x %x %x\n",ipa,target_handle,handle,id,hyp_vm->guest2guest_share );
+	hyp_print("pkvm_test_call %llx %x %x %x %x\n",ipa,target_handle,initiator_handle,id,hyp_vm->guest2guest_share );
 	dbg = 1;
 	struct guest2guest_share *share;
-	struct guest2guest_share *target_share = 0;
+	//struct guest2guest_share *completer_share = 0;
 	struct guest2guest_share *new_share = 0;
-
+	struct guest2guest_share *p;
 	bool init = false;
 	
 	//hyp_print("hyp_mem1 %llx\n",
@@ -1568,34 +1568,33 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 
 	dbg = 1;
 	target_hyp_vm = pkvm_get_hyp_vm(target_handle);
-	if (target_hyp_vm)
-		target_share = target_hyp_vm->guest2guest_share;
-	hyp_print("target share %llx \n", target_share);
-	while (target_share) {
-		hyp_print("look for %x %lx %x\n",
-				target_share->completer_handle,
-				target_share->completer_ipa,
-				target_share->id);
-
-		if ((target_share->completer_handle == handle) &&
-		    (target_share->completer_ipa == 0) &&
-		    (target_share->id == id)) {
-			target_share->completer_ipa = ipa;
-			hyp_print("vmid found %x/%x \n",target_handle,id);
-			init = true;
-			break;
-		}
-		//new_share = share->next;
-		if (target_share->next) {
-			target_share = target_share->next;
-		}
-	}
 	if (target_hyp_vm) {
-		hyp_print("put\n");
-		pkvm_put_hyp_vm(target_hyp_vm);
-		hyp_print("putok\n");
+		share = target_hyp_vm->guest2guest_share;
+		hyp_print("target share %llx \n", share);
+		while (share) {
+			hyp_print("look for %x %lx %x\n",
+					share->completer_handle,
+					share->completer_ipa,
+					share->id);
+
+			if ((share->completer_handle == initiator_handle) &&
+			    (share->completer_ipa == 0) &&
+			    (share->id == id)) {
+				share->completer_ipa = ipa;
+				hyp_print("vmid found %x/%x \n",target_handle,id);
+				init = true;
+				break;
+			}
+			//new_share = share->next;
+			if (share->next) {
+				share = share->next;
+			}
+		}
+//		if (target_hyp_vm) {
+//			pkvm_put_hyp_vm(target_hyp_vm);
+//		}
 	}
-	if (!init) {
+	if (!share) {
 		new_share = hyp_alloc_account(sizeof(struct guest2guest_share),
 						hyp_vm->host_kvm);
 		//hyp_print("hyp_mem2 %llx %llx\n",
@@ -1606,9 +1605,13 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 		} else {
 			memset(new_share, 0, sizeof(struct guest2guest_share));
 			if (hyp_vm->guest2guest_share) {
+				p = hyp_vm->guest2guest_share;
+				while (p->next)
+					p = p->next;
+				p->next = new_share;
+
 				hyp_print("set share_next\n");
-				share->next = new_share;
-			}	else {
+			} else {
 				hyp_print("init hyp_vm\n");
 				hyp_vm->guest2guest_share = new_share;
 			}
@@ -1659,8 +1662,8 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 			 return false;
 		}
 	} else {
-		hyp_print("use vmid %x/%x to %llx -> %llx\n",target_handle, id, ipa, target_share->phys);
-		err = pkvm_guest_share_guest2(hyp_vcpu, ipa, 1, &nr_shared, target_share->phys);
+		hyp_print("use vmid %x/%x to %llx -> %llx\n",target_handle, id, ipa, share->phys);
+		err = pkvm_guest_share_guest2(hyp_vcpu, ipa, 1, &nr_shared, share->phys);
 	}
 	hyp_print("pkvm_test_call ret %x\n",err);
 	smccc_set_retval(vcpu, SMCCC_RET_SUCCESS, nr_shared, 0, 0);
