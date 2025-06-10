@@ -1611,12 +1611,8 @@ static int __guest_request_page_transition(struct pkvm_checked_mem_transition *c
 		ret = 0;
 	else if (ret)
 		return ret;
-	if (dbg)
-		hyp_print("ok\n");
 	if (data.ipa_start > tx->initiator.addr)
 		return -EINVAL;
-	if (dbg)
-		hyp_print("ok\n");
 
 	/*
 	 * transition not aligned with block memory mapping. They'll be broken
@@ -2095,13 +2091,12 @@ int __pkvm_guest_share_host(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
 
 //struct pkvm_hyp_vm *stat_vm;
 
-int pkvm_guest_share_guest(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
-			    u64 *nr_shared, u64 *phys)
+int pkvm_guest_share_guest(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 *phys)
 {
 	int ret;
 	struct pkvm_hyp_vm *vm = pkvm_hyp_vcpu_to_hyp_vm(vcpu);
 	struct pkvm_mem_transition share = {
-		.nr_pages	= nr_pages,
+		.nr_pages	= 1,
 		.initiator	= {
 			.id	= PKVM_ID_GUEST,
 			.addr	= ipa,
@@ -2135,13 +2130,12 @@ int pkvm_guest_share_guest(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
 	return ret;
 }
 
-int pkvm_guest_share_guest2(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
-			    u64 *nr_shared, u64 phys)
+int pkvm_guest_share_guest2(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 phys)
 {
 	int ret;
 	struct pkvm_hyp_vm *vm = pkvm_hyp_vcpu_to_hyp_vm(vcpu);
 	struct pkvm_mem_transition share = {
-		.nr_pages	= nr_pages,
+		.nr_pages	= 1,
 		.initiator	= {
 			.id	= PKVM_ID_GUEST,
 			.addr	= ipa,

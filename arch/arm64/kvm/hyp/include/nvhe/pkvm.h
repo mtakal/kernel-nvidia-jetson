@@ -17,7 +17,7 @@ struct guest2guest_share {
 	pkvm_handle_t completer_handle;
 	unsigned long initiator_ipa;
 	unsigned long completer_ipa;
-	u32	id;
+	u32	page_nr;
 	phys_addr_t phys;
 	struct guest2guest_share *next;
 };
