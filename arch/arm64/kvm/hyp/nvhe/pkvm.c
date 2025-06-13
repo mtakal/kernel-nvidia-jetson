@@ -901,6 +901,8 @@ err_free_vm:
 	hyp_free_account(hyp_vm, host_kvm);
 err_unpin_kvm:
 	hyp_unpin_shared_mem(host_kvm, host_kvm + 1);
+	if (ret)
+		hyp_print("__pkvm_init_vm ret %d\n",ret);
 	return ret;
 }
 
@@ -1457,7 +1459,25 @@ static int pkvm_handle_empty_memcache(struct pkvm_hyp_vcpu *hyp_vcpu,
 
 	return 0;
 }
+static int my_test(struct pkvm_hyp_vcpu *hyp_vcpu,
+				      u64 *exit_code)
+{
+	struct kvm_hyp_req *req;
+	hyp_print("my_test1\n");
+	req = pkvm_hyp_req_reserve(hyp_vcpu, REQ_MEM_DEST_HYP_ALLOC);
+	hyp_print("my_test2\n");
+	if (!req)
+		return -ENOMEM;
 
+	req->mem.dest = REQ_MEM_DEST_HYP_ALLOC;
+	req->mem.nr_pages = 1;
+	hyp_print("my_test3\n");
+	write_sysreg_el2(read_sysreg_el2(SYS_ELR) - 4, SYS_ELR);
+
+	*exit_code = ARM_EXCEPTION_HYP_REQ;
+
+	return 0;
+}
 int dbg = 0;
 static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 {
@@ -1479,7 +1499,7 @@ static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 		goto out_guest_err;
 	err = __pkvm_guest_share_host(hyp_vcpu, ipa, nr_pages, &nr_shared);
 
-
+	//hyp_print("pkvm_memshare_call err %d\n",err);
 	switch (err) {
 	case 0:
 		atomic64_add(nr_shared * PAGE_SIZE,
@@ -1699,14 +1719,27 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 			  * We're about to go back to the host... let's not waste time
 			  * and check for the memcache while at it.
 			  */
-			 fallthrough;
+			 break;
+			 //fallthrough;
 		 case -ENOMEM:
 			 hyp_print("ENOMEM: try to allocate more memory from the host\n");
-			 if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code)) {
+			 //my_test(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP)
+			 if (my_test(hyp_vcpu, exit_code)) {
+					dbg = 0;
+					hyp_print("out_guest_err ENOMEM\n");
+					smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
+				 }
+			 //req = pkvm_hyp_req_reserve(hyp_vcpu, REQ_MEM_DEST_HYP_ALLOC);
+
+			 //req->mem.nr_pages = 1;
+			 hyp_print("ENOMEM done\n");
+
+/*			 if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code)) {
 				dbg = 0;
 				hyp_print("out_guest_err ENOMEM\n");
 				smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
 			 }
+			 */
 			 return false;
 		}
 	}

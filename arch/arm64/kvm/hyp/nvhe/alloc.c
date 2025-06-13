@@ -607,7 +607,7 @@ void *hyp_alloc(size_t size)
 						(unsigned long)chunk_data(last_chunk));
 	if (missing_map) {
 		ret = chunk_inc_map(last_chunk, missing_map, allocator);
-		hyp_print("missing map %x\n",ret);
+		hyp_print("missing map %d\n",ret);
 
 		if (ret)
 			goto end;
