@@ -1478,6 +1478,8 @@ static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	if (arg3 || !PAGE_ALIGNED(ipa))
 		goto out_guest_err;
 	err = __pkvm_guest_share_host(hyp_vcpu, ipa, nr_pages, &nr_shared);
+
+
 	switch (err) {
 	case 0:
 		atomic64_add(nr_shared * PAGE_SIZE,
@@ -1499,6 +1501,8 @@ static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 		 */
 		fallthrough;
 	case -ENOMEM:
+		if (err == -ENOMEM)
+			hyp_print("err ENǸOMEM pkvm_memshare_call  %llx %llx\n",arg3,ipa);
 		if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code))
 			goto out_guest_err;
 
@@ -1537,6 +1541,51 @@ struct guest_share_data {
 #endif
 //ruct guest_shared_mem gshare[MAX_GUEST_SHARE_COUNT];
 
+pkvm_handle_t find_guest_share_from_vmids(pkvm_handle_t vmid, pkvm_handle_t start)
+{
+	struct guest2guest_share *share;
+	struct pkvm_hyp_vm *target_hyp_vm;
+	struct pkvm_hyp_vm *hyp_vm = pkvm_get_hyp_vm(vmid);
+	pkvm_handle_t retval = 0;
+	int i;
+
+	if  (start < HANDLE_OFFSET)
+		start = HANDLE_OFFSET - 1;
+	for (i = vm_handle_to_idx(start + 1); i < KVM_MAX_PVMS; i++) {
+		if ( idx_to_vm_handle(i) == vmid)
+			continue;
+
+		target_hyp_vm = pkvm_get_hyp_vm(idx_to_vm_handle(i));
+		if (target_hyp_vm) {
+			share = target_hyp_vm->guest2guest_share;
+			/* search for current vmid in other guests shares */
+			while (share) {
+				if (share->completer_handle == vmid) {
+					retval = target_hyp_vm->kvm.arch.pkvm.handle;
+					hyp_print("other vmid %x share %x\n",retval, vmid);
+					break;
+				}
+				share = share->next;
+			}
+			if (!retval) {
+				/* check if the current vm contains a share for vmid under test*/
+				share = hyp_vm->guest2guest_share;
+				while (share) {
+					if (share->completer_handle == idx_to_vm_handle(i)) {
+						retval = share->completer_handle;
+						hyp_print("this vmid %x share %x\n",vmid, retval);
+						break;
+					}
+					share = share->next;
+				}
+			}
+			pkvm_put_hyp_vm(target_hyp_vm);
+		}
+		if (retval)
+			break;
+	}
+	return retval;
+}
 int pkvm_guest_share_guest(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 *phys);
 int pkvm_guest_share_guest2(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 phys);
 static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
@@ -1584,10 +1633,12 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 				//init = true;
 				break;
 			}
+			//hyp_print("share-next %llx\n", share->next);
 
-			if (share->next) {
-				share = share->next;
-			}
+			//if (share->next) {
+			share = share->next;
+			//} else
+			//	break;
 		}
 		pkvm_put_hyp_vm(target_hyp_vm);
 	}
@@ -1673,7 +1724,7 @@ static bool pkvm_test2_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	struct pkvm_hyp_vm *target_hyp_vm;
 	u64 target_handle = smccc_get_arg1(vcpu);
 
-	pkvm_handle_t initiator_handle = hyp_vm->kvm.arch.pkvm.handle;
+	pkvm_handle_t handle = hyp_vm->kvm.arch.pkvm.handle;
 	struct guest2guest_share *share;
 
 	struct kvm_hyp_req *req;
@@ -1681,46 +1732,50 @@ static bool pkvm_test2_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	u32 owned_completed = 0;
 	u32 brwed_waiting = 0;
 	u32 brwed_completed = 0;
-
+	u64 owned = 0;
+	u64 brwed = 0;
 	int err;
+
 	hyp_print("pkvm_test2_call\n");
 	dbg = 1;
-	target_hyp_vm = pkvm_get_hyp_vm(target_handle);
+	if (target_handle >= HANDLE_OFFSET) {
+		target_hyp_vm = pkvm_get_hyp_vm(target_handle);
 
-	if (target_hyp_vm) {
-		share = target_hyp_vm->guest2guest_share;
-		hyp_print("target share\n");
+		if (target_hyp_vm) {
+			share = target_hyp_vm->guest2guest_share;
+			while (share) {
+				hyp_print("target share %lx\n",share->completer_handle);
+				if (share->completer_handle == handle) {
+					if (share->completer_ipa) {
+						brwed_completed++;
+					} else {
+						brwed_waiting++;
+					}
+				}
+				share = share->next;
+			}
+			pkvm_put_hyp_vm(target_hyp_vm);
+		}
+		share = hyp_vm->guest2guest_share;
 		while (share) {
-			hyp_print("target share %lx\n",share->completer_handle);
-			if (share->completer_handle == initiator_handle) {
+			hyp_print("my share %lx\n",share->completer_handle);
+			if (share->completer_handle == target_handle) {
 				if (share->completer_ipa) {
-					brwed_completed++;
+					owned_completed++;
 				} else {
-					brwed_waiting++;
+					owned_waiting++;
 				}
 			}
 			share = share->next;
 		}
-		pkvm_put_hyp_vm(target_hyp_vm);
+		owned = (u64) owned_completed << 32 | owned_waiting;
+		brwed = (u64) brwed_completed << 32 | brwed_waiting;
+		hyp_print("owned %llx\n", owned);
+		hyp_print("brwed %llx\n", brwed);
 	}
-	share = hyp_vm->guest2guest_share;
-	while (share) {
-		hyp_print("my share %lx\n",share->completer_handle);
-		if (share->completer_handle == target_handle) {
-			if (share->completer_ipa) {
-				owned_completed++;
-			} else {
-				owned_waiting++;
-			}
-		}
-		share = share->next;
-	}
-	u64 owned = (u64) owned_completed << 32 | owned_waiting;
-	u64 brwed = (u64) brwed_completed << 32 | brwed_waiting;
-	hyp_print("owned %llx\n", owned);
-	hyp_print("brwed %llx\n", brwed);
-
-	smccc_set_retval(vcpu, SMCCC_RET_SUCCESS, owned, brwed, 0);
+	hyp_print("next vmid %x\n", find_guest_share_from_vmids(handle, target_handle));
+	smccc_set_retval(vcpu, SMCCC_RET_SUCCESS, owned, brwed,
+			find_guest_share_from_vmids(handle, target_handle));
 
 
 	return true;

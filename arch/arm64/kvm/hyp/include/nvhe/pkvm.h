@@ -19,6 +19,7 @@ struct guest2guest_share {
 	unsigned long completer_ipa;
 	u32	page_nr;
 	phys_addr_t phys;
+	u8 dummy[2048];
 	struct guest2guest_share *next;
 };
 /*

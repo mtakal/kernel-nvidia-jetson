@@ -607,7 +607,7 @@ void *hyp_alloc(size_t size)
 						(unsigned long)chunk_data(last_chunk));
 	if (missing_map) {
 		ret = chunk_inc_map(last_chunk, missing_map, allocator);
-		if (dbg) hyp_print("missing map %x\n",ret);
+		hyp_print("missing map %x\n",ret);
 
 		if (ret)
 			goto end;
@@ -616,7 +616,8 @@ void *hyp_alloc(size_t size)
 	WARN_ON(chunk_install(chunk, size, last_chunk, allocator));
 end:
 	hyp_spin_unlock(&allocator->lock);
-
+	if (ret)
+		hyp_print("hyp_alloc errno %d\n",ret);
 	*(this_cpu_ptr(&hyp_allocator_errno)) = ret;
 
 	/* Enforce zeroing allocated memory */
