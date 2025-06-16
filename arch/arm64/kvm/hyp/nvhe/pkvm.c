@@ -1478,6 +1478,26 @@ static int my_test(struct pkvm_hyp_vcpu *hyp_vcpu,
 
 	return 0;
 }
+
+static int my_test2(struct pkvm_hyp_vcpu *hyp_vcpu,
+				      u64 *exit_code)
+{
+	struct kvm_hyp_req *req;
+	hyp_print("my_test1\n");
+	req = pkvm_hyp_req_reserve(hyp_vcpu, REQ_MEM_DEST_HYP_ALLOC);
+	hyp_print("my_test2\n");
+	if (!req)
+		return -ENOMEM;
+
+	req->mem.dest = REQ_MEM_DEST_HYP_ALLOC;
+	req->mem.nr_pages = 1;
+	hyp_print("my_test3\n");
+	write_sysreg_el2(read_sysreg_el2(SYS_ELR) - 4, SYS_ELR);
+
+	*exit_code = ARM_EXCEPTION_HYP_REQ;
+
+	return 0;
+}
 int dbg = 0;
 static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 {
@@ -1508,6 +1528,7 @@ static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 
 		return true;
 	case -EFAULT:
+		hyp_print("pkvm_memshare_call EFAULT\n");
 		req = pkvm_hyp_req_reserve(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP);
 		if (!req)
 			goto out_guest_err;
@@ -1521,6 +1542,7 @@ static bool pkvm_memshare_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 		 */
 		fallthrough;
 	case -ENOMEM:
+		hyp_print("pkvm_memshare_call ENOMEM\n");
 		if (err == -ENOMEM)
 			hyp_print("err ENǸOMEM pkvm_memshare_call  %llx %llx\n",arg3,ipa);
 		if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code))
@@ -1692,17 +1714,20 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 		}
 
 		hyp_print("pkvm_test_call err %x\n",err);
+		if (!err) {
+			err = pkvm_guest_share_guest(hyp_vcpu, ipa,  &new_share->phys);
+			hyp_print("get phys %llx -> %llx %x\n",ipa, new_share->phys, err);
+		}
 
 		switch (err) {
 		case 0:
+			hyp_print("set vmid %x/%x to %d %llx -> %llx \n",target_handle, page_nr, i,ipa, new_share->phys);
+
 			new_share->completer_handle = target_handle;
 			//new_share->status = INITIATED;
 			new_share->page_nr = page_nr;
 			new_share->initiator_ipa = ipa;
-			retval = pkvm_guest_share_guest(hyp_vcpu, ipa,  &new_share->phys);
-			hyp_print("set vmid %x/%x to %d %llx -> %llx\n",target_handle, page_nr, i, ipa, new_share->phys);
 			break;
-
 		case -EFAULT:
 			 hyp_print("EFAULT:\n");
 			 req = pkvm_hyp_req_reserve(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP);
@@ -1714,24 +1739,23 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 		
 			 req->map.guest_ipa = ipa;
 			 req->map.size = 1 << PAGE_SHIFT;
-		
+			write_sysreg_el2(read_sysreg_el2(SYS_ELR) - 4, SYS_ELR);
+
+			*exit_code = ARM_EXCEPTION_HYP_REQ;
 			 /*
 			  * We're about to go back to the host... let's not waste time
 			  * and check for the memcache while at it.
 			  */
-			 break;
+			 return false;
 			 //fallthrough;
 		 case -ENOMEM:
 			 hyp_print("ENOMEM: try to allocate more memory from the host\n");
-			 //my_test(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP)
+
 			 if (my_test(hyp_vcpu, exit_code)) {
 					dbg = 0;
 					hyp_print("out_guest_err ENOMEM\n");
 					smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
 				 }
-			 //req = pkvm_hyp_req_reserve(hyp_vcpu, REQ_MEM_DEST_HYP_ALLOC);
-
-			 //req->mem.nr_pages = 1;
 			 hyp_print("ENOMEM done\n");
 
 /*			 if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code)) {
