@@ -1648,7 +1648,7 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	struct guest2guest_share *share;
 	//struct guest2guest_share *completer_share = 0;
 	struct guest2guest_share *new_share = 0;
-	struct guest2guest_share *p;
+	struct guest2guest_share *p = 0;
 	bool share_completed = false;
 
 	
@@ -1681,24 +1681,41 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 		if (!retval)
 			share_completed = true;
 	} else {
+		/*
+		if (hyp_vm->guest2guest_share) {
+			p = hyp_vm->guest2guest_share;
+			if (p->phys) {
+				break;
+			}
+			while (p->next) {
+				hyp_print("tst %x\n",p->page_nr);
+				p = p->next;
+			}
+		}
+*/
 		new_share = hyp_alloc_account(sizeof(struct guest2guest_share),
 						hyp_vm->host_kvm);
+		hyp_print("new_share %llx\n",new_share);
 		if (!new_share) {
 			hyp_print("fail\n");
 			err = hyp_alloc_errno();
 		} else {
 			memset(new_share, 0, sizeof(struct guest2guest_share));
-			if (hyp_vm->guest2guest_share) {
-				p = hyp_vm->guest2guest_share;
-				while (p->next) {
-					hyp_print("tst %x\n",p->page_nr);
-					p = p->next;
-				}
-				p->next = new_share;
-
-				hyp_print("set share_next\n");
+			p = hyp_vm->guest2guest_share;
+			if (p) {
+				//if (!p->phys) {
+					hyp_print("p %llx p->next %llx\n",p,p->next);
+					while (p->next) {
+						hyp_print("tst %x\n",p->page_nr);
+						p = p->next;
+					}
+					p->next = new_share;
+					hyp_print("set share_next %llx\n",new_share);
+				//}
+				//else
+				//	hyp_print("already allocated\n");
 			} else {
-				hyp_print("init hyp_vm\n");
+				hyp_print("init hyp_vm %llx\n",new_share);
 				hyp_vm->guest2guest_share = new_share;
 			}
 			hyp_print("OK1\n");
@@ -1721,6 +1738,11 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 			break;
 		case -EFAULT:
 			 hyp_print("EFAULT\n");
+			 if (p) {
+				 p->next = 0;
+				 hyp_print("free %llx\n",new_share);
+				 hyp_free_account(new_share, hyp_vm->host_kvm);
+			 }
 			 map_guest_page(hyp_vcpu, exit_code, ipa);
 			 hyp_print("EFAULT done\n");
 			 return false;
