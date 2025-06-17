@@ -1459,13 +1459,12 @@ static int pkvm_handle_empty_memcache(struct pkvm_hyp_vcpu *hyp_vcpu,
 
 	return 0;
 }
-static int my_test(struct pkvm_hyp_vcpu *hyp_vcpu,
+static int allocate_more_memory_from_host(struct pkvm_hyp_vcpu *hyp_vcpu,
 				      u64 *exit_code)
 {
 	struct kvm_hyp_req *req;
-	hyp_print("my_test1\n");
-	req = pkvm_hyp_req_reserve(hyp_vcpu, REQ_MEM_DEST_HYP_ALLOC);
-	hyp_print("my_test2\n");
+
+	req = pkvm_hyp_req_reserve(hyp_vcpu, KVM_HYP_REQ_TYPE_MEM);;
 	if (!req)
 		return -ENOMEM;
 
@@ -1479,18 +1478,18 @@ static int my_test(struct pkvm_hyp_vcpu *hyp_vcpu,
 	return 0;
 }
 
-static int my_test2(struct pkvm_hyp_vcpu *hyp_vcpu,
-				      u64 *exit_code)
+static int map_guest_page(struct pkvm_hyp_vcpu *hyp_vcpu,
+			  u64 *exit_code, u64 ipa)
 {
 	struct kvm_hyp_req *req;
-	hyp_print("my_test1\n");
-	req = pkvm_hyp_req_reserve(hyp_vcpu, REQ_MEM_DEST_HYP_ALLOC);
-	hyp_print("my_test2\n");
+
+	req = pkvm_hyp_req_reserve(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP);
 	if (!req)
 		return -ENOMEM;
 
 	req->mem.dest = REQ_MEM_DEST_HYP_ALLOC;
-	req->mem.nr_pages = 1;
+	req->map.guest_ipa = ipa;
+	req->map.size = 1 << PAGE_SHIFT;
 	hyp_print("my_test3\n");
 	write_sysreg_el2(read_sysreg_el2(SYS_ELR) - 4, SYS_ELR);
 
@@ -1642,7 +1641,7 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	struct pkvm_hyp_vm ;
 	struct kvm_hyp_req *req;
 	int retval = SMCCC_RET_SUCCESS;
-	int err;
+	int err = 0;
 	int i;
 	hyp_print("pkvm_test_call %llx %x %x %x %x\n",ipa,target_handle,initiator_handle,page_nr,hyp_vm->guest2guest_share );
 	dbg = 1;
@@ -1653,9 +1652,6 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	bool share_completed = false;
 
 	
-	//hyp_print("hyp_mem1 %llx\n",
-	//		hyp_vm->host_kvm->stat.protected_hyp_mem);
-
 	dbg = 1;
 	target_hyp_vm = pkvm_get_hyp_vm(target_handle);
 	if (target_hyp_vm) {
@@ -1675,12 +1671,7 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 				//init = true;
 				break;
 			}
-			//hyp_print("share-next %llx\n", share->next);
-
-			//if (share->next) {
 			share = share->next;
-			//} else
-			//	break;
 		}
 		pkvm_put_hyp_vm(target_hyp_vm);
 	}
@@ -1692,8 +1683,6 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 	} else {
 		new_share = hyp_alloc_account(sizeof(struct guest2guest_share),
 						hyp_vm->host_kvm);
-		//hyp_print("hyp_mem2 %llx %llx\n",
-		//		hyp_vm->host_kvm->stat.protected_hyp_mem, guest_share);
 		if (!new_share) {
 			hyp_print("fail\n");
 			err = hyp_alloc_errno();
@@ -1701,8 +1690,10 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 			memset(new_share, 0, sizeof(struct guest2guest_share));
 			if (hyp_vm->guest2guest_share) {
 				p = hyp_vm->guest2guest_share;
-				while (p->next)
+				while (p->next) {
+					hyp_print("tst %x\n",p->page_nr);
 					p = p->next;
+				}
 				p->next = new_share;
 
 				hyp_print("set share_next\n");
@@ -1729,49 +1720,30 @@ static bool pkvm_test_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
 			new_share->initiator_ipa = ipa;
 			break;
 		case -EFAULT:
-			 hyp_print("EFAULT:\n");
-			 req = pkvm_hyp_req_reserve(hyp_vcpu, KVM_HYP_REQ_TYPE_MAP);
-			 if (!req) {
-					hyp_print("out_guest_err EFAULT\n");
-					smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
-					return false;
-			 }
-		
-			 req->map.guest_ipa = ipa;
-			 req->map.size = 1 << PAGE_SHIFT;
-			write_sysreg_el2(read_sysreg_el2(SYS_ELR) - 4, SYS_ELR);
-
-			*exit_code = ARM_EXCEPTION_HYP_REQ;
-			 /*
-			  * We're about to go back to the host... let's not waste time
-			  * and check for the memcache while at it.
-			  */
+			 hyp_print("EFAULT\n");
+			 map_guest_page(hyp_vcpu, exit_code, ipa);
+			 hyp_print("EFAULT done\n");
 			 return false;
-			 //fallthrough;
 		 case -ENOMEM:
 			 hyp_print("ENOMEM: try to allocate more memory from the host\n");
 
-			 if (my_test(hyp_vcpu, exit_code)) {
-					dbg = 0;
-					hyp_print("out_guest_err ENOMEM\n");
-					smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
-				 }
-			 hyp_print("ENOMEM done\n");
-
-/*			 if (pkvm_handle_empty_memcache(hyp_vcpu, exit_code)) {
-				dbg = 0;
+			 if (allocate_more_memory_from_host(hyp_vcpu, exit_code)) {
 				hyp_print("out_guest_err ENOMEM\n");
-				smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
-			 }
-			 */
+				goto out_guest_err;
+			}
+			 hyp_print("ENOMEM done\n");
 			 return false;
 		}
 	}
-	hyp_print("pkvm_test_call ret %x\n", retval);
+	//hyp_print("pkvm_test_call ret %x\n", retval);
 	smccc_set_retval(vcpu, retval, share_completed, 0, 0);
 	dbg = 0;
-
 	return true;
+
+out_guest_err:
+	smccc_set_retval(vcpu, SMCCC_RET_INVALID_PARAMETER, 0, 0, 0);
+	return true;
+
 
 }
 static bool pkvm_test2_call(struct pkvm_hyp_vcpu *hyp_vcpu, u64 *exit_code)
