@@ -337,10 +337,11 @@ static int handle_hyp_req_mem(struct kvm_vcpu *vcpu,
 	struct kvm *kvm = vcpu->kvm;
 	unsigned long nr_pages;
 	int ret;
-	kvm_err("handle_hyp_req_mem %x\n",req->mem.dest);
+
+//	kvm_err("handle_hyp_req_mem %x\n",req->mem.dest);
 	switch (req->mem.dest) {
 	case REQ_MEM_DEST_HYP_ALLOC:
-		kvm_err("REQ_MEM_DEST_HYP_ALLOC\n");
+//		kvm_err("REQ_MEM_DEST_HYP_ALLOC\n");
 		return __pkvm_topup_hyp_alloc(req->mem.nr_pages);
 	case REQ_MEM_DEST_VCPU_MEMCACHE:
 		nr_pages = vcpu->arch.stage2_mc.nr_pages;
@@ -361,7 +362,7 @@ static int handle_hyp_req_mem(struct kvm_vcpu *vcpu,
 static int handle_hyp_req_map(struct kvm_vcpu *vcpu,
 			      struct kvm_hyp_req *req)
 {
-	kvm_err("handle_hyp_req_map %llx\n", req->map.guest_ipa);
+//	kvm_err("handle_hyp_req_map %llx\n", req->map.guest_ipa);
 	return pkvm_mem_abort_range(vcpu, req->map.guest_ipa, req->map.size);
 }
 
@@ -369,6 +370,7 @@ static int handle_hyp_req(struct kvm_vcpu *vcpu)
 {
 	struct kvm_hyp_req *hyp_req = vcpu->arch.hyp_reqs;
 	int i, ret;
+
 	for (i = 0; i < KVM_HYP_REQ_MAX; i++, hyp_req++) {
 		if (hyp_req->type == KVM_HYP_LAST_REQ)
 			break;

@@ -37,6 +37,7 @@ int hyp_alloc_mgt_reclaimable(void)
 	struct hyp_mgt_allocator_ops *ops;
 	int reclaimable = 0;
 	int i;
+
 	//hyp_print("hyp_alloc_mgt_reclaimable\n");
 	for (i = 0 ; i < MAX_ALLOC_ID ; ++i) {
 		ops = registered_allocators[i];

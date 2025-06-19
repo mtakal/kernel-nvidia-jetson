@@ -12,14 +12,16 @@
 
 #include <nvhe/gfp.h>
 #include <nvhe/spinlock.h>
+enum g2g_share_status {EMPTY, INITIATED, COMPLETED};
 struct guest2guest_share {
-	//pkvm_handle_t initiator_handle;
+	pkvm_handle_t initiator_handle;
 	pkvm_handle_t completer_handle;
 	unsigned long initiator_ipa;
 	unsigned long completer_ipa;
 	u32	page_nr;
 	phys_addr_t phys;
-	u8 dummy[2048];
+	enum g2g_share_status status;
+	//u8 dummy[2048];
 	struct guest2guest_share *next;
 };
 /*
@@ -75,7 +77,7 @@ struct pkvm_hyp_vm {
 	 */
 	unsigned int nr_vcpus;
 	hyp_spinlock_t vcpus_lock;
-	struct guest2guest_share *guest2guest_share;
+	//struct guest2guest_share *guest2guest_share;
 	/*
 	 * True when the guest is being torn down. When in this state, the
 	 * guest's vCPUs can't be loaded anymore, but its pages can be
