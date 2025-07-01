@@ -3016,7 +3016,7 @@ int __pkvm_install_ioguard_page(struct pkvm_hyp_vcpu *hyp_vcpu, u64 ipa,
 	};
 	u64 size = nr_pages * PAGE_SIZE;
 	int ret;
-	hyp_print("__pkvm_install_ioguard_page %llx\n", ipa);
+	//hyp_print("__pkvm_install_ioguard_page %llx\n", ipa);
 	if (!test_bit(KVM_ARCH_FLAG_MMIO_GUARD, &vm->kvm.arch.flags))
 		return -EINVAL;
 
@@ -3062,7 +3062,7 @@ int __pkvm_remove_ioguard_page(struct pkvm_hyp_vcpu *hyp_vcpu, u64 ipa,
 	u64 size = nr_pages * PAGE_SIZE;
 	int ret;
 
-	hyp_print("__pkvm__ioguard_page %llx\n", ipa);
+	//hyp_print("__pkvm__ioguard_page %llx\n", ipa);
 	if (!test_bit(KVM_ARCH_FLAG_MMIO_GUARD, &vm->kvm.arch.flags))
 		return -EINVAL;
 

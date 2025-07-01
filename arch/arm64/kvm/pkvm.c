@@ -349,9 +349,6 @@ static int __pkvm_create_hyp_vcpu(struct kvm *host_kvm, struct kvm_vcpu *host_vc
 
 	ret = kvm_call_refill_hyp_nvhe(__pkvm_init_vcpu,
 				       handle, host_vcpu);
-	printk("__pkvm_create_hyp_vcpu %x\n",ret);
-	pr_err("__pkvm_create_hyp_vcpu %x\n",ret);
-
 	if (!ret)
 		return 0;
 
@@ -407,7 +404,6 @@ static int __pkvm_create_hyp_vm(struct kvm *host_kvm)
 
 	/* Donate the VM memory to hyp and let hyp initialize it. */
 	ret = kvm_call_refill_hyp_nvhe(__pkvm_init_vm, host_kvm, pgd);
-	printk("__pkvm_create_hyp_vm ret %d\n",ret);
 	if (ret < 0)
 		goto free_pgd;
 
@@ -1033,7 +1029,7 @@ int __pkvm_topup_hyp_alloc_mgt_gfp(unsigned long id, unsigned long nr_pages,
 	int ret;
 
 	init_hyp_memcache(&mc);
-	kvm_err("__pkvm_topup_hyp_alloc_mgt_gfp\n");
+
 	ret = topup_hyp_memcache_gfp(&mc, nr_pages, get_order(sz_alloc), gfp);
 	if (ret)
 		return ret;

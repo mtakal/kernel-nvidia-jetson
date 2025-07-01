@@ -21,7 +21,7 @@ struct guest2guest_share {
 	u32	page_nr;
 	phys_addr_t phys;
 	enum g2g_share_status status;
-	//u8 dummy[2048];
+	u8 dummy[2048];
 	struct guest2guest_share *next;
 };
 /*
