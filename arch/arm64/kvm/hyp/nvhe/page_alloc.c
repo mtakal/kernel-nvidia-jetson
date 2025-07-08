@@ -6,6 +6,7 @@
 
 #include <asm/kvm_hyp.h>
 #include <nvhe/gfp.h>
+#include <nvhe/hyp_print.h>
 
 u64 __hyp_vmemmap;
 
@@ -154,6 +155,7 @@ static struct hyp_page *__hyp_extract_page(struct hyp_pool *pool,
 
 	return p;
 }
+extern int dbg;
 
 static void __hyp_put_page(struct hyp_pool *pool, struct hyp_page *p)
 {
@@ -171,7 +173,6 @@ static void __hyp_put_page(struct hyp_pool *pool, struct hyp_page *p)
 void hyp_put_page(struct hyp_pool *pool, void *addr)
 {
 	struct hyp_page *p = hyp_virt_to_page(addr);
-
 	BUG_ON(p->order > pool->max_order);
 	__hyp_put_page(pool, p);
 }

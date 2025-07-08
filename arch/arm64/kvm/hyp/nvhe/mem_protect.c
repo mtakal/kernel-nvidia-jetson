@@ -266,6 +266,8 @@ static void guest_s2_get_page(void *addr)
 
 static void guest_s2_put_page(void *addr)
 {
+	if (dbg)
+		hyp_print("addr %llx\n",addr);
 	hyp_put_page(&current_vm->pool, addr);
 }
 
@@ -2177,7 +2179,36 @@ int pkvm_g2g_share_complete(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 phys)
 
 	return ret;
 }
+int __pkvm_g2g_unshare(struct pkvm_hyp_vcpu *vcpu, u64 ipa)
+{
+	int ret;
+	struct pkvm_hyp_vm *vm = pkvm_hyp_vcpu_to_hyp_vm(vcpu);
+	/*struct pkvm_mem_transition share = {
+		.nr_pages	= nr_pages,
+		.initiator	= {
+			.id	= PKVM_ID_GUEST,
+			.addr	= ipa,
+			.guest	= {
+				.hyp_vm = vm,
+				.mc = &vcpu->vcpu.arch.stage2_mc,
+			},
+		},
+		.completer	= {
+			.id	= PKVM_ID_HOST,
+			.prot = PKVM_HOST_MEM_PROT,
+		},
+	};
+*/
+	host_lock_component();
+	guest_lock_component(vm);
+	ret = kvm_pgtable_stage2_unmap(&vm->pgt, ipa, 4096);
+	//ret = do_unshare(&share, nr_unshared);
 
+	guest_unlock_component(vm);
+	host_unlock_component();
+
+	return ret;
+}
 int __pkvm_guest_unshare_host(struct pkvm_hyp_vcpu *vcpu, u64 ipa, u64 nr_pages,
 			      u64 *nr_unshared)
 {
